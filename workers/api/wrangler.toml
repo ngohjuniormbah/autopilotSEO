@@ -1,0 +1,21 @@
+name = "autopilotseo-api"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "autopilotseo"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[vars]
+APP_ORIGIN = "http://localhost:3000"
+SESSION_COOKIE_NAME = "autopilotseo_session"
+SESSION_TTL_SECONDS = "2592000"
+OPENAI_MODEL = "gpt-4.1-mini"
+
+[[ratelimits]]
+name = "AUTH_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
