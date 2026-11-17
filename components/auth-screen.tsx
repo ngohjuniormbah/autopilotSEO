@@ -14,6 +14,15 @@ function AuthForm({ mode }: { mode: Exclude<Mode, "verify"> }) {
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [success, setSuccess] = useState(false);
+  useEffect(() => {
+    if (mode !== "new-password") return;
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const accessToken = hash.get("access_token");
+    if (accessToken && hash.get("type") === "recovery") {
+      saveSession({ access_token: accessToken, refresh_token: hash.get("refresh_token") || undefined, expires_at: Math.floor(Date.now()/1000) + Number(hash.get("expires_in") || 3600) });
+      window.history.replaceState({}, "", "/new-password");
+    }
+  }, [mode]);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setMessage(""); setLoading(true);
     const form = new FormData(event.currentTarget);
