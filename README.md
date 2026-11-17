@@ -1,90 +1,105 @@
 # AutopilotSEO
 
-Next.js 16 + TypeScript + Tailwind frontend deployed to Cloudflare Workers, with a separate TypeScript Worker API, Cloudflare D1, Resend transactional email, and OpenAI Responses API. No secrets are committed.
+AutopilotSEO is a search-visibility workspace. The MVP lets a user register, connect a website, crawl a bounded set of public pages, inspect technical/on-page SEO issues, calculate a deterministic health score, and receive AI-prioritized recommendations.
 
-## Local setup
+## Architecture
 
-Requires Node.js 20.9 or later. Install the web dependencies from the repository root:
+- **Frontend:** Next.js 16 + TypeScript + Tailwind, deployed on Vercel.
+- **Backend:** FastAPI + Python, deployed on Render.
+- **Database:** Supabase Postgres.
+- **Identity:** Supabase Auth. The browser sends Supabase access tokens to FastAPI; FastAPI verifies JWT signatures and scopes every database query to the authenticated user.
+- **AI:** OpenAI Responses API. The deterministic rules engine computes findings and score; AI only prioritizes/explains findings and generates metadata.
+- **Crawl limits:** Up to 12 same-host HTTPS pages per audit, 1 MB response limit per page, bounded redirects, request timeouts, public-DNS checks, and robots.txt directives.
 
-```bash
-npm ci
-cp .env.example .env.local
-npm run dev
+The former Cloudflare Worker/D1/Resend backend is no longer the active architecture.
+
+## 1. Supabase setup
+
+1. Create a Supabase project.
+2. In **SQL Editor**, run the complete contents of `backend/schema.sql`.
+3. In **Authentication → URL Configuration**, set your Vercel site as the Site URL and add these Redirect URLs:
+   - `https://YOUR-VERCEL-DOMAIN/verify-email`
+   - `https://YOUR-VERCEL-DOMAIN/new-password`
+   - `http://localhost:3000/verify-email`
+   - `http://localhost:3000/new-password`
+4. In **Project Settings → API**, copy the Project URL and publishable/anon key. These are the only Supabase values exposed to the browser.
+5. In **Project Settings → Database**, copy a PostgreSQL connection string. For Render, prefer the Supabase Session Pooler connection string if the direct database host is unreachable from Render. Use the password-safe URI format and URL-encode special characters.
+
+### Supabase email templates
+
+The frontend supports Supabase OTP verification links. Configure the confirmation email template to link to:
+
+```html
+<a href="{{ .SiteURL }}/verify-email?token_hash={{ .TokenHash }}&type=signup">Verify email</a>
 ```
 
-For the API, create `workers/api/.dev.vars` from `.dev.vars.example`, put test-only credentials there, then:
+Configure the password recovery template to link to:
 
-```bash
-cd workers/api
-npm install
-npm run db:local
-npm run dev
+```html
+<a href="{{ .SiteURL }}/new-password?token_hash={{ .TokenHash }}&type=recovery">Reset password</a>
 ```
 
-Set `NEXT_PUBLIC_API_URL` in the web app to the local API URL. The API only accepts the exact `APP_ORIGIN` configured in its Wrangler vars.
+Use the correct template variables shown in your Supabase project's email template editor. Confirm that the Site URL and redirect allowlist match the deployed domain.
 
-## Cloudflare resources and deploy
+## 2. Render backend setup
 
-1. Create the D1 database and take its returned ID:
+Create a Render Web Service from this repository. Use the checked-in `backend/render.yaml` Blueprint or configure:
 
-   ```bash
-   cd workers/api
-   npx wrangler d1 create autopilotseo
-   ```
+- Root Directory: `backend`
+- Runtime: Python
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Health Check Path: `/health`
 
-2. Put that ID in `workers/api/wrangler.toml`. Apply the checked-in migration:
+Set these environment variables in Render:
 
-   ```bash
-   npx wrangler d1 migrations apply autopilotseo --remote
-   ```
+| Variable | Value |
+|---|---|
+| `SUPABASE_URL` | Supabase Project URL |
+| `DATABASE_URL` | Supabase Postgres connection string |
+| `SUPABASE_JWT_SECRET` | Legacy JWT secret only if the project uses HS256; asymmetric JWTs use Supabase JWKS |
+| `OPENAI_API_KEY` | Server-side OpenAI API key |
+| `FRONTEND_ORIGIN` | Exact Vercel origin, e.g. `https://your-app.vercel.app` |
 
-   To execute the SQL file directly instead of the migrations runner:
+Never put the database password, JWT secret, or OpenAI key in a `NEXT_PUBLIC_*` variable.
 
-   ```bash
-   npx wrangler d1 execute autopilotseo --remote --file=migrations/0001_initial.sql
-   ```
+## 3. Vercel frontend setup
 
-3. Add the API secrets. Use a verified sender/domain from Resend and an OpenAI project API key:
+Import this GitHub repository into Vercel. Framework preset: Next.js. Root directory: repository root. Build command: `npm run build`.
 
-   ```bash
-   npx wrangler secret put RESEND_API_KEY
-   npx wrangler secret put EMAIL_FROM
-   npx wrangler secret put OPENAI_API_KEY
-   ```
+Set these Vercel environment variables for Preview and Production:
 
-4. Set `APP_ORIGIN` in the API Worker to the deployed web origin, then deploy the API:
+- `NEXT_PUBLIC_API_URL`: deployed Render service URL, e.g. `https://autopilotseo-api.onrender.com`
+- `NEXT_PUBLIC_SUPABASE_URL`: Supabase Project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Supabase publishable/anon key
 
-   ```bash
-   npx wrangler deploy
-   ```
+For local development, copy `.env.example` to `.env.local`, install dependencies with `npm ci`, then run `npm run dev`.
 
-5. Set `NEXT_PUBLIC_API_URL` in the web build environment to the deployed API origin. Install root dependencies, authenticate Wrangler with the intended Cloudflare account, and deploy the frontend Worker:
+## MVP workflow
 
-   ```bash
-   cd ../..
-   npm ci
-   npm run deploy
-   ```
+1. Sign up and verify email through Supabase Auth.
+2. Log in and open the workspace.
+3. Add an HTTPS website.
+4. FastAPI stores the site under the authenticated Supabase user.
+5. The crawler checks up to 12 pages and common technical/on-page signals.
+6. A deterministic score and issue list are stored in Supabase Postgres.
+7. OpenAI optionally produces prioritized recommendations from observed findings.
 
-For the safest cookie behavior, use the same registrable domain for the web app and API (for example `app.example.com` and `api.example.com`) and HTTPS in production. The frontend and API are separate Workers so API deployments and secrets remain isolated.
+## API endpoints
 
-## Authentication and AI
+- `GET /health`
+- `GET /sites`
+- `POST /sites`
+- `GET /sites/{site_id}/audits`
+- `POST /sites/{site_id}/audits`
+- `GET /audits/{audit_id}`
+- `POST /metadata/generate`
 
-- Sign-up requires a verified email before login. Verification and password reset links are single-use, hashed at rest, and expire.
-- Passwords are stored as PBKDF2-SHA-256 hashes. Sessions use random opaque tokens in `HttpOnly`, `Secure` (on HTTPS), `SameSite=Lax` cookies.
-- Login, signup, and reset requests use Cloudflare's configured rate limiter. Reset responses do not disclose whether an email is registered.
-- The authenticated `/ai/visibility-summary` endpoint uses the OpenAI Responses API. The OpenAI key is read only from a Worker secret; never expose it in a `NEXT_PUBLIC_*` variable.
-- Email delivery requires a Resend account and verified sending domain. Until configured, sign-up reports a delivery error and does not create a usable account.
-- Set an appropriate Cloudflare Workers paid plan/CPU budget for password hashing and enable D1 backups/monitoring before production traffic.
+## Known MVP limitations
 
-## Routes
-
-Web: `/`, `/login`, `/signup`, `/verify-email?token=…`, `/reset-password`, `/new-password?token=…`, `/privacy`, `/terms`, `/app`.
-
-API: `/health`, `/auth/signup`, `/auth/verify-email`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/password-reset/request`, `/auth/password-reset/confirm`, `/ai/visibility-summary`.
-
-## Environment files
-
-- Root `.env.local`: `NEXT_PUBLIC_API_URL` only.
-- `workers/api/.dev.vars`: local API secrets (ignored by Git).
-- Production secrets: Cloudflare Worker secret bindings set with `wrangler secret put`.
+- Google Search Console OAuth and real click/impression data are not implemented.
+- The crawler is synchronous and intentionally capped. Move crawling into a durable background queue before increasing crawl limits or adding scheduled audits.
+- The AI visibility section in the demo dashboard remains illustrative; it does not query ChatGPT, Perplexity, or other AI search systems.
+- SEO score is a transparent heuristic, not a Google ranking score.
+- DNS is checked before requests and redirects are revalidated; production hardening should bind outbound connections to validated IPs or use an isolated egress proxy to fully eliminate DNS-rebinding risk.
+- Render free instances may sleep; use an always-on service for a dependable live demo and customer-facing crawl execution.
