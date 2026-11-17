@@ -2,31 +2,40 @@
 
 import Link from "next/link";
 import { FormEvent, Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { signIn, signUp, requestPasswordReset, updatePassword, saveSession, getSession, verifyOtp } from "@/lib/api";
 
-const api = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 type Mode = "login" | "signup" | "reset" | "new-password" | "verify";
 
 function AuthForm({ mode }: { mode: Exclude<Mode, "verify"> }) {
-  const params = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [success, setSuccess] = useState(false);
+  useEffect(() => {
+    if (mode !== "new-password") return;
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const accessToken = hash.get("access_token");
+    if (accessToken && hash.get("type") === "recovery") {
+      saveSession({ access_token: accessToken, refresh_token: hash.get("refresh_token") || undefined, expires_at: Math.floor(Date.now()/1000) + Number(hash.get("expires_in") || 3600) });
+      window.history.replaceState({}, "", "/new-password"); return;
+    }
+    const query = new URLSearchParams(window.location.search);
+    const tokenHash = query.get("token_hash");
+    if (tokenHash && query.get("type") === "recovery") {
+      verifyOtp(tokenHash,"recovery").then(() => { window.history.replaceState({}, "", "/new-password"); setMessage("Reset link verified. Choose a new password."); }).catch((error) => setMessage(error instanceof Error ? error.message : "Reset link is invalid or expired."));
+    }
+  }, [mode]);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setMessage(""); setLoading(true);
     const form = new FormData(event.currentTarget);
-    const payload = Object.fromEntries(form.entries());
-    const endpoint = mode === "signup" ? "/auth/signup" : mode === "login" ? "/auth/login" : mode === "reset" ? "/auth/password-reset/request" : "/auth/password-reset/confirm";
-    if (mode === "new-password") payload.token = params.get("token") || "";
+    const name = String(form.get("name") || ""), email = String(form.get("email") || ""), password = String(form.get("password") || "");
     try {
-      if (!api) throw new Error("The API URL is not configured. Set NEXT_PUBLIC_API_URL and redeploy the frontend.");
-      const response = await fetch(`${api}${endpoint}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const data = await response.json() as { message?: string; error?: string };
-      if (!response.ok) throw new Error(data.error || "Request failed. Please try again.");
-      setMessage(data.message || (mode === "login" ? "You are logged in." : "Done.")); setSuccess(true);
-      if (mode === "login") window.location.assign("/app");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to connect. Please try again."); setSuccess(false); }
+      if (mode === "signup") { await signUp(name,email,password); setMessage("Account created. Check your inbox to verify your email, then log in."); }
+      else if (mode === "login") { await signIn(email,password); window.location.assign("/app"); }
+      else if (mode === "reset") { await requestPasswordReset(email); setMessage("If this email belongs to an account, Supabase will send a password reset link."); }
+      else { await updatePassword(password); saveSession(null); setMessage("Password updated. Log in with your new password."); }
+      setSuccess(true);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to complete the request."); setSuccess(false); }
     finally { setLoading(false); }
   };
   const titles: Record<typeof mode,string> = { login:"Welcome back to better discovery.", signup:"Make search work harder for you.", reset:"Reset your password.", "new-password":"Choose a new password." };
@@ -46,9 +55,22 @@ function AuthForm({ mode }: { mode: Exclude<Mode, "verify"> }) {
 }
 
 function VerifyEmail() {
-  const params=useSearchParams(); const [message,setMessage]=useState("Verifying your email…");
-  useEffect(() => { const token=params.get("token"); if(!token){setMessage("This verification link is invalid or expired.");return;} if(!api){setMessage("The API URL is not configured yet.");return;} fetch(`${api}/auth/verify-email`,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({token})}).then(async r=>{const d=await r.json() as {message?:string;error?:string};setMessage(r.ok?"Your email is verified. You can log in now.":d.error||"Verification failed.");}).catch(()=>setMessage("We could not reach the account service. Please try again.")); }, [params]);
-  return <main className="auth-layout"><section className="auth-pitch"><div className="eyebrow blue-eyebrow">ACCOUNT VERIFICATION</div><h1>One last step.</h1><p>Confirming the email address for your AutopilotSEO account.</p></section><div className="auth-card"><h2>Email verification</h2><p className="auth-message">{message}</p><p className="auth-foot"><Link href="/login">Continue to log in →</Link></p></div></main>;
+  const [message,setMessage]=useState("Checking verification link…");
+  useEffect(() => {
+    const hash=new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const accessToken=hash.get("access_token"), refreshToken=hash.get("refresh_token"), type=hash.get("type");
+    if(accessToken && (type==="signup" || type==="email")) {
+      saveSession({access_token:accessToken,refresh_token:refreshToken||undefined,expires_at:Math.floor(Date.now()/1000)+Number(hash.get("expires_in")||3600)});
+      window.history.replaceState({}, "", "/verify-email"); setMessage("Your email is verified. Your workspace is ready."); return;
+    }
+    const tokenHash = new URLSearchParams(window.location.search).get("token_hash");
+    if (tokenHash) {
+      verifyOtp(tokenHash,"signup").then(() => { window.history.replaceState({}, "", "/verify-email"); setMessage("Your email is verified. Your workspace is ready."); }).catch((error) => setMessage(error instanceof Error ? error.message : "Verification link is invalid or expired."));
+      return;
+    }
+    setMessage(getSession() ? "You are already signed in." : "Open the verification link sent to your email. If it expired, request a new verification email.");
+  },[]);
+  return <main className="auth-layout"><section className="auth-pitch"><div className="eyebrow blue-eyebrow">ACCOUNT VERIFICATION</div><h1>One last step.</h1><p>Confirming the email address for your AutopilotSEO account.</p></section><div className="auth-card"><h2>Email verification</h2><p className="auth-message">{message}</p><p className="auth-foot"><Link href="/app">Open workspace →</Link> · <Link href="/login">Log in</Link></p></div></main>;
 }
 
 export default function AuthScreen({mode}:{mode:Mode}) { return <div className="auth-page"><header className="auth-top"><Link className="brand" href="/"><span className="brand-mark" aria-hidden="true"><i/><i/><i/><i/></span><span>autopilot<span className="brand-light">SEO</span></span></Link></header><Suspense fallback={<div className="auth-layout">Loading…</div>}>{mode === "verify" ? <VerifyEmail/> : <AuthForm mode={mode}/>}</Suspense><footer className="auth-footer"><Link href="/">← Back to AutopilotSEO</Link></footer></div>; }

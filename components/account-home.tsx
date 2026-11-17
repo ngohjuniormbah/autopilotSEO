@@ -2,10 +2,13 @@
 
 import Link from "next/link";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { apiRequest, getSession, signOut } from "@/lib/api";
 
-const api = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+
 type User = { id: string; name: string; email: string };
 type Section = "overview" | "performance" | "audit" | "visibility" | "activity";
+type Site = { id: string; url: string };
+type Audit = { audit: { id: string; score: number; pages_crawled: number; issue_count: number }; issues: { code: string; severity: string; url: string; title: string; description: string }[]; recommendations: { title: string; priority: string; reason: string; action: string }[] };
 
 const navItems: { id: Section; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "grid" },
@@ -53,6 +56,9 @@ export default function AccountHome() {
   const [website, setWebsite] = useState("");
   const [websiteError, setWebsiteError] = useState("");
   const [dateRange, setDateRange] = useState("28 days");
+  const [sites, setSites] = useState<Site[]>([]);
+  const [auditResult, setAuditResult] = useState<Audit | null>(null);
+  const [siteSaving, setSiteSaving] = useState(false);
 
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("demo") === "1") {
@@ -60,18 +66,12 @@ export default function AccountHome() {
       setLoading(false);
       return;
     }
-    if (!api) {
-      setError("The account service isn’t connected in this preview.");
-      setLoading(false);
-      return;
-    }
-    fetch(`${api}/auth/me`, { credentials: "include" })
-      .then(async (response) => {
-        const data = await response.json() as { user?: User; error?: string };
-        if (!response.ok) throw new Error(data.error || "Please log in to continue.");
-        setUser(data.user || null);
-      })
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Please log in to continue."))
+    const session = getSession();
+    if (!session?.access_token) { setError("Please log in to continue."); setLoading(false); return; }
+    setUser({ id: session.user?.id || "", name: session.user?.user_metadata?.full_name || session.user?.user_metadata?.name || "there", email: session.user?.email || "" });
+    apiRequest<{sites: Site[]}>("/sites")
+      .then((data) => setSites(data.sites || []))
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Could not load websites."))
       .finally(() => setLoading(false));
   }, []);
 
@@ -82,22 +82,24 @@ export default function AccountHome() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [siteDialogOpen]);
 
-  const logout = async () => {
-    try { if (api) await fetch(`${api}/auth/logout`, { method: "POST", credentials: "include" }); }
-    catch { /* The local session may already be unavailable; continue to sign-in. */ }
-    finally { window.location.assign("/login"); }
-  };
+  const logout = async () => { await signOut(); window.location.assign("/login"); };
 
   const openSiteDialog = () => { setWebsiteError(""); setSiteDialogStep(1); setSiteDialogOpen(true); };
-  const submitWebsite = (event: FormEvent<HTMLFormElement>) => {
+  const submitWebsite = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     let parsed: URL;
     try { parsed = new URL(website.startsWith("http") ? website : `https://${website}`); }
     catch { setWebsiteError("Enter a valid website, such as example.com."); return; }
     if (!parsed.hostname.includes(".")) { setWebsiteError("Enter a full domain, such as example.com."); return; }
-    setWebsite(parsed.hostname.toLowerCase());
-    setWebsiteError("");
-    setSiteDialogStep(2);
+    setWebsiteError(""); setSiteSaving(true);
+    try {
+      const created = await apiRequest<{site: Site}>("/sites", { method: "POST", body: JSON.stringify({ url: `https://${parsed.hostname}` }) });
+      setWebsite(created.site.url); setSites((current) => [created.site, ...current.filter((site) => site.id !== created.site.id)]);
+      setSiteDialogStep(2); setAuditResult(null);
+      const result = await apiRequest<Audit>(`/sites/${created.site.id}/audits`, { method: "POST", body: JSON.stringify({}) });
+      setAuditResult(result);
+    } catch (reason) { setWebsiteError(reason instanceof Error ? reason.message : "Could not save the website or complete its audit."); }
+    finally { setSiteSaving(false); }
   };
 
   if (loading || (!user && !demo)) return <WorkspaceGate loading={loading} error={error}/>;
@@ -116,12 +118,12 @@ export default function AccountHome() {
     <button className="workspace-backdrop" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)}/>
     <aside className="workspace-sidebar" aria-label="Workspace navigation">
       <div className="workspace-sidebar-top"><Brand/><button className="workspace-close-menu" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)}>×</button></div>
-      <div className="workspace-site-switcher"><span className="workspace-site-icon"><Icon name="globe" size={17}/></span><span><small>WORKSPACE</small><strong>{demo ? "Northstar Studio" : "My workspace"}</strong></span><span className="workspace-switch-caret">⌄</span></div>
+      <div className="workspace-site-switcher"><span className="workspace-site-icon"><Icon name="globe" size={17}/></span><span><small>WORKSPACE</small><strong>{demo ? "Northstar Studio" : sites[0]?.url?.replace("https://", "").replace("http://", "") || "My workspace"}</strong></span><span className="workspace-switch-caret">⌄</span></div>
       <div className="workspace-nav-label">MENU</div>
       <nav className="workspace-nav">
         {navItems.map((item) => <button key={item.id} className={`workspace-nav-item ${active === item.id ? "active" : ""}`} onClick={() => scrollTo(item.id)}><Icon name={item.icon}/><span>{item.label}</span>{item.id === "audit" && <span className="workspace-nav-count">14</span>}</button>)}
       </nav>
-      <div className="workspace-sidebar-bottom"><div className="workspace-connect-card"><div className="workspace-connect-icon"><Icon name="globe" size={17}/></div><strong>{demo ? "Sample website" : "No website connected"}</strong><p>{demo ? "northstar-studio.com" : "Connect a site to start tracking progress."}</p><button type="button" onClick={openSiteDialog}>{demo ? "Manage website" : "Connect website"}<span>↗</span></button></div><button className="workspace-nav-item workspace-settings" onClick={() => scrollTo("overview")}><Icon name="settings"/><span>Settings</span></button><div className="workspace-user"><span className="workspace-avatar">{initials}</span><span className="workspace-user-details"><strong>{displayName}</strong><small>{displayEmail}</small></span><button onClick={logout} aria-label="Log out" title="Log out"><span>↗</span></button></div></div>
+      <div className="workspace-sidebar-bottom"><div className="workspace-connect-card"><div className="workspace-connect-icon"><Icon name="globe" size={17}/></div><strong>{demo ? "Sample website" : sites.length ? sites.length + " website(s) connected" : "No website connected"}</strong><p>{demo ? "northstar-studio.com" : sites[0]?.url || "Connect a site to start tracking progress."}</p><button type="button" onClick={openSiteDialog}>{demo ? "Manage website" : "Connect website"}<span>↗</span></button></div><button className="workspace-nav-item workspace-settings" onClick={() => scrollTo("overview")}><Icon name="settings"/><span>Settings</span></button><div className="workspace-user"><span className="workspace-avatar">{initials}</span><span className="workspace-user-details"><strong>{displayName}</strong><small>{displayEmail}</small></span><button onClick={logout} aria-label="Log out" title="Log out"><span>↗</span></button></div></div>
     </aside>
 
     <div className="workspace-main">
@@ -158,6 +160,6 @@ export default function AccountHome() {
       </main>
     </div>
 
-    {siteDialogOpen && <div className="workspace-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSiteDialogOpen(false); }}><section className="workspace-dialog" role="dialog" aria-modal="true" aria-labelledby="site-dialog-title"><button className="workspace-dialog-close" aria-label="Close" onClick={() => setSiteDialogOpen(false)}>×</button><div className="workspace-dialog-icon"><Icon name={siteDialogStep === 1 ? "globe" : "check"} size={23}/></div><div className="workspace-kicker">WEBSITE SETUP · STEP {siteDialogStep} OF 2</div><h2 id="site-dialog-title">{siteDialogStep === 1 ? "Add your website" : "Your setup plan is ready"}</h2>{siteDialogStep === 1 ? <><p>Start with the main domain you want to monitor. You can add more sites later.</p><form onSubmit={submitWebsite}><label htmlFor="site-url">Website address</label><input id="site-url" type="text" inputMode="url" autoComplete="url" placeholder="example.com" value={website} onChange={(event) => setWebsite(event.target.value)} aria-invalid={Boolean(websiteError)} aria-describedby={websiteError ? "site-url-error" : "site-url-help"}/>{websiteError && <span className="workspace-field-error" id="site-url-error">{websiteError}</span>}<span className="workspace-field-help" id="site-url-help">Enter a domain you own or manage.</span><button className="button" type="submit">Continue <Icon name="arrow" size={17}/></button></form></> : <><p><strong>{website}</strong> is ready to add to your workspace.</p><div className="workspace-dialog-integration"><span className="workspace-integration-mark">G</span><span><strong>Google Search Console</strong><small>Connection will be enabled with the backend integration.</small></span><span className="workspace-coming-soon">COMING SOON</span></div><div className="workspace-preview-disclosure">This is a frontend preview. The website won’t be saved or connected yet.</div><div className="workspace-dialog-actions"><button className="workspace-dialog-back" onClick={() => setSiteDialogStep(1)}>Back</button><button className="button" onClick={() => setSiteDialogOpen(false)}>Done <Icon name="check" size={17}/></button></div></>}</section></div>}
+    {siteDialogOpen && <div className="workspace-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSiteDialogOpen(false); }}><section className="workspace-dialog" role="dialog" aria-modal="true" aria-labelledby="site-dialog-title"><button className="workspace-dialog-close" aria-label="Close" onClick={() => setSiteDialogOpen(false)}>×</button><div className="workspace-dialog-icon"><Icon name={siteDialogStep === 1 ? "globe" : "check"} size={23}/></div><div className="workspace-kicker">WEBSITE SETUP · STEP {siteDialogStep} OF 2</div><h2 id="site-dialog-title">{siteDialogStep === 1 ? "Add your website" : auditResult ? "Your first audit is complete" : siteSaving ? "Your website is being audited" : "Website saved"}</h2>{siteDialogStep === 1 ? <><p>Start with the main domain you want to monitor. You can add more sites later.</p><form onSubmit={submitWebsite}><label htmlFor="site-url">Website address</label><input id="site-url" type="text" inputMode="url" autoComplete="url" placeholder="example.com" value={website} onChange={(event) => setWebsite(event.target.value)} aria-invalid={Boolean(websiteError)} aria-describedby={websiteError ? "site-url-error" : "site-url-help"}/>{websiteError && <span className="workspace-field-error" id="site-url-error">{websiteError}</span>}<span className="workspace-field-help" id="site-url-help">Enter a domain you own or manage.</span><button className="button" type="submit" disabled={siteSaving}>{siteSaving ? "Saving and auditing…" : "Save and run audit"} <Icon name="arrow" size={17}/></button></form></> : <><p><strong>{website}</strong> has been saved to your workspace.</p>{siteSaving && <p>Scanning up to 12 public pages and checking their SEO signals. This can take a minute.</p>}{auditResult && <><div className="workspace-real-stats"><div><span>SEO health</span><strong>{auditResult.audit.score}/100</strong></div><div><span>Pages crawled</span><strong>{auditResult.audit.pages_crawled}</strong></div><div><span>Issues found</span><strong>{auditResult.audit.issue_count}</strong></div></div><div className="workspace-dialog-integration"><span className="workspace-integration-mark">✓</span><span><strong>Technical SEO audit complete</strong><small>Findings come from the pages fetched from your website.</small></span></div><div className="workspace-issue-list">{auditResult.issues.slice(0,5).map((issue,index)=><div className="workspace-issue" key={issue.code+issue.url+index}><span className={`issue-dot ${issue.severity==="critical"?"high":"medium"}`}/><span className="workspace-issue-copy"><strong>{issue.title}</strong><small>{issue.url}</small></span></div>)}</div>{auditResult.recommendations.length>0 && <div className="workspace-preview-disclosure"><strong>AI recommendations:</strong> {auditResult.recommendations.map((item)=>item.title).join(" · ")}</div>}</>}{websiteError && <p className="workspace-field-error">{websiteError}</p>}<div className="workspace-dialog-actions"><button className="workspace-dialog-back" onClick={() => setSiteDialogStep(1)}>Add another</button><button className="button" onClick={() => {setSiteDialogOpen(false); if(auditResult) window.location.reload();}}>Done <Icon name="check" size={17}/></button></div></>}</section></div>}
   </div>;
 }
