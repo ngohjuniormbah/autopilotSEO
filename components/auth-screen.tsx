@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { signIn, signUp, requestPasswordReset, updatePassword, saveSession, getSession } from "@/lib/api";
+import { signIn, signUp, requestPasswordReset, updatePassword, saveSession, getSession, verifyOtp } from "@/lib/api";
 
 const api = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 type Mode = "login" | "signup" | "reset" | "new-password" | "verify";
@@ -20,7 +20,12 @@ function AuthForm({ mode }: { mode: Exclude<Mode, "verify"> }) {
     const accessToken = hash.get("access_token");
     if (accessToken && hash.get("type") === "recovery") {
       saveSession({ access_token: accessToken, refresh_token: hash.get("refresh_token") || undefined, expires_at: Math.floor(Date.now()/1000) + Number(hash.get("expires_in") || 3600) });
-      window.history.replaceState({}, "", "/new-password");
+      window.history.replaceState({}, "", "/new-password"); return;
+    }
+    const query = new URLSearchParams(window.location.search);
+    const tokenHash = query.get("token_hash");
+    if (tokenHash && query.get("type") === "recovery") {
+      verifyOtp(tokenHash,"recovery").then(() => { window.history.replaceState({}, "", "/new-password"); setMessage("Reset link verified. Choose a new password."); }).catch((error) => setMessage(error instanceof Error ? error.message : "Reset link is invalid or expired."));
     }
   }, [mode]);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
