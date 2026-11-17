@@ -30,13 +30,13 @@ The former Cloudflare Worker/D1/Resend backend is no longer the active architect
 The frontend supports Supabase OTP verification links. Configure the confirmation email template to link to:
 
 ```html
-<a href="{{ .SiteURL }}/verify-email?token_hash={{ .TokenHash }}&type=signup">Verify email</a>
+<a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=signup">Verify email</a>
 ```
 
 Configure the password recovery template to link to:
 
 ```html
-<a href="{{ .SiteURL }}/new-password?token_hash={{ .TokenHash }}&type=recovery">Reset password</a>
+<a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=recovery">Reset password</a>
 ```
 
 Use the correct template variables shown in your Supabase project's email template editor. Confirm that the Site URL and redirect allowlist match the deployed domain.
