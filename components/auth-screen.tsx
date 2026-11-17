@@ -2,14 +2,11 @@
 
 import Link from "next/link";
 import { FormEvent, Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { signIn, signUp, requestPasswordReset, updatePassword, saveSession, getSession, verifyOtp } from "@/lib/api";
 
-const api = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 type Mode = "login" | "signup" | "reset" | "new-password" | "verify";
 
 function AuthForm({ mode }: { mode: Exclude<Mode, "verify"> }) {
-  const params = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
