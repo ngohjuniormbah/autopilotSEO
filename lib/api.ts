@@ -1,6 +1,6 @@
-// Canonical Render service URL for the current MVP deployment.
-// Pinning this prevents a stale or mistyped Vercel env var sending requests elsewhere.
-const API_URL = "https://autopilotseo.onrender.com";
+// Configure this in Vercel for both Production and Preview.
+// The fallback matches the Render service name in backend/render.yaml.
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "https://autopilotseo-api.onrender.com").replace(/\/+$/, "");
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") || "";
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const SESSION_KEY = "autopilotseo.supabase.session";
