@@ -356,3 +356,93 @@ body{font-size:18px;line-height:1.65;color:#172235}
   .workspace-main{width:100%;margin-left:0}
   .workspace-menu-open .workspace-sidebar{transform:translateX(0)}
 }
+
+
+/* Minimal sidebar: no outlined navigation pills or boxed labels. */
+.workspace-sidebar{
+  width:250px;
+  padding:0 22px 17px;
+  background:#fff;
+  border-right:1px solid #edf0f4;
+  box-shadow:none;
+}
+.workspace-sidebar-top{
+  height:76px;
+  padding:0 0;
+  border-bottom:1px solid #f0f2f6;
+}
+.workspace-brand{font-size:18px;color:#17253b}
+.workspace-brand .brand-light{color:#78869a}
+.workspace-site-switcher{
+  margin:21px 0 29px;
+  padding:7px 0;
+  min-height:48px;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.workspace-site-icon{
+  width:34px;height:34px;
+  background:#f1f5fb;
+  color:#5579b5;
+  border-radius:8px;
+}
+.workspace-site-switcher small{font-size:9px;color:#98a2b1;letter-spacing:.9px}
+.workspace-site-switcher strong{font-size:12px;color:#344256;font-weight:650}
+.workspace-nav-label{padding:0 0 11px;color:#a0a9b6;font-size:9px;letter-spacing:1.15px}
+.workspace-nav{gap:4px}
+.workspace-nav-item{
+  min-height:42px;
+  padding:0 2px;
+  gap:12px;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  color:#69778a;
+  font-size:12.5px;
+  font-weight:500;
+  box-shadow:none;
+}
+.workspace-nav-item:hover{
+  background:transparent;
+  color:#245fca;
+}
+.workspace-nav-item.active{
+  background:transparent;
+  color:#245fca;
+  box-shadow:none;
+  font-weight:700;
+}
+.workspace-nav-item.active svg{color:#3478e5}
+.workspace-nav-item svg{color:#96a1b1}
+.workspace-nav-count{margin-left:auto;background:#eef3fb;color:#5474a7}
+.workspace-sidebar-bottom{padding-top:12px}
+.workspace-connect-card{
+  padding:13px 12px;
+  border:0;
+  border-radius:9px;
+  background:#f5f8fd;
+}
+.workspace-connect-icon{background:#eaf1fc;color:#4776c0}
+.workspace-connect-card>strong{color:#34445b}
+.workspace-connect-card p{color:#7f8ca0}
+.workspace-connect-card button{
+  border:0;
+  border-radius:6px;
+  background:#e8f0fd;
+  color:#3268bd;
+}
+.workspace-connect-card button:hover{background:#dce9fc}
+.workspace-settings{margin-bottom:10px}
+.workspace-user{border-top:1px solid #eef1f5}
+.workspace-main{width:calc(100% - 250px);margin-left:250px}
+@media(max-width:1180px){
+ .workspace-sidebar{width:238px;padding-left:18px;padding-right:18px}
+ .workspace-main{width:calc(100% - 238px);margin-left:238px}
+}
+@media(max-width:760px){
+ .workspace-sidebar{width:286px;padding:0 20px 16px;transform:translateX(-102%)}
+ .workspace-main{width:100%;margin-left:0}
+ .workspace-menu-open .workspace-sidebar{transform:translateX(0)}
+}
