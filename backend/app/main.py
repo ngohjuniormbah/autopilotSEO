@@ -236,7 +236,3 @@ async def metadata_generate(body: MetadataInput, user=Depends(current_user)):
     except json.JSONDecodeError:
         raise HTTPException(502, "AI returned an invalid response.")
 
-
-@app.not_found
-async def not_found(request, exc):
-    return {"detail": "Not found"}
