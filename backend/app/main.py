@@ -54,7 +54,7 @@ app.add_middleware(
     allow_origins=FRONTEND_ORIGINS,
     # Vercel preview URLs change per deployment. Restrict the regex to this
     # project slug rather than allowing every *.vercel.app origin.
-    allow_origin_regex=r"https://autopilot-seo(?:-[a-z0-9-]+)?\\.vercel\\.app",
+    allow_origin_regex=r"https://autopilot-seo(?:-[a-z0-9-]+)?\.vercel\.app",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
