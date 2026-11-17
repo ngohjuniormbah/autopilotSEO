@@ -63,6 +63,11 @@ function VerifyEmail() {
       saveSession({access_token:accessToken,refresh_token:refreshToken||undefined,expires_at:Math.floor(Date.now()/1000)+Number(hash.get("expires_in")||3600)});
       window.history.replaceState({}, "", "/verify-email"); setMessage("Your email is verified. Your workspace is ready."); return;
     }
+    const tokenHash = new URLSearchParams(window.location.search).get("token_hash");
+    if (tokenHash) {
+      verifyOtp(tokenHash,"signup").then(() => { window.history.replaceState({}, "", "/verify-email"); setMessage("Your email is verified. Your workspace is ready."); }).catch((error) => setMessage(error instanceof Error ? error.message : "Verification link is invalid or expired."));
+      return;
+    }
     setMessage(getSession() ? "You are already signed in." : "Open the verification link sent to your email. If it expired, request a new verification email.");
   },[]);
   return <main className="auth-layout"><section className="auth-pitch"><div className="eyebrow blue-eyebrow">ACCOUNT VERIFICATION</div><h1>One last step.</h1><p>Confirming the email address for your AutopilotSEO account.</p></section><div className="auth-card"><h2>Email verification</h2><p className="auth-message">{message}</p><p className="auth-foot"><Link href="/app">Open workspace →</Link> · <Link href="/login">Log in</Link></p></div></main>;
