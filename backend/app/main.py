@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from jwt import PyJWKClient
 from pydantic import BaseModel, Field
+from .crawler import calculate_score, crawl_site, generate_recommendations
 
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
@@ -138,3 +139,104 @@ async def safe_get(client: httpx.AsyncClient, url: str) -> httpx.Response:
             return httpx.Response(streamed.status_code, headers=streamed.headers, content=b"".join(chunks), request=streamed.request)
     raise HTTPException(400, "Too many redirects.")
 
+
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "autopilotseo-api"}
+
+
+@app.get("/sites")
+async def list_sites(user=Depends(current_user), pool=Depends(db)):
+    rows = await pool.fetch("SELECT id, url, created_at FROM sites WHERE user_id=$1 ORDER BY created_at DESC", uuid.UUID(user["id"]))
+    return {"sites": [dict(row) for row in rows]}
+
+
+@app.post("/sites", status_code=201)
+async def create_site(body: SiteInput, user=Depends(current_user), pool=Depends(db)):
+    url = normalize_site(body.url)
+    await assert_public_host(url)
+    row = await pool.fetchrow(
+        "INSERT INTO sites(user_id,url) VALUES($1,$2) ON CONFLICT(user_id,url) DO UPDATE SET url=EXCLUDED.url RETURNING id,url,created_at",
+        uuid.UUID(user["id"]), url
+    )
+    return {"site": dict(row)}
+
+
+@app.get("/sites/{site_id}/audits")
+async def audit_history(site_id: uuid.UUID, user=Depends(current_user), pool=Depends(db)):
+    site = await pool.fetchrow("SELECT id FROM sites WHERE id=$1 AND user_id=$2", site_id, uuid.UUID(user["id"]))
+    if not site:
+        raise HTTPException(404, "Website not found")
+    rows = await pool.fetch("SELECT id,score,pages_crawled,issue_count,status,created_at FROM audits WHERE site_id=$1 ORDER BY created_at DESC LIMIT 20", site_id)
+    return {"audits": [dict(row) for row in rows]}
+
+
+@app.post("/sites/{site_id}/audits", status_code=201)
+async def run_audit(site_id: uuid.UUID, user=Depends(current_user), pool=Depends(db)):
+    site = await pool.fetchrow("SELECT id,url FROM sites WHERE id=$1 AND user_id=$2", site_id, uuid.UUID(user["id"]))
+    if not site:
+        raise HTTPException(404, "Website not found")
+    pages, issues, failures = await crawl_site(site["url"], safe_get)
+    score = calculate_score(pages, issues)
+    recommendations = await generate_recommendations(issues, site["url"], OPENAI_API_KEY)
+    async with pool.acquire() as connection:
+        async with connection.transaction():
+            audit = await connection.fetchrow(
+                "INSERT INTO audits(site_id,score,pages_crawled,issue_count,status,failures,recommendations) VALUES($1,$2,$3,$4,'completed',$5::jsonb,$6::jsonb) RETURNING id,score,pages_crawled,issue_count,status,created_at",
+                site_id, score, len(pages), len(issues), json.dumps(failures), json.dumps(recommendations)
+            )
+            for page in pages:
+                await connection.execute(
+                    "INSERT INTO audit_pages(audit_id,url,title,description,h1_count,canonical,images_count,images_missing_alt,word_count) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                    audit["id"], page["url"], page["title"], page["description"], len(page["h1s"]), page["canonical"], page["images"], page["images_missing_alt"], page["word_count"]
+                )
+            for issue in issues:
+                await connection.execute(
+                    "INSERT INTO audit_issues(audit_id,code,severity,url,title,description) VALUES($1,$2,$3,$4,$5,$6)",
+                    audit["id"], issue["code"], issue["severity"], issue["url"], issue["title"], issue["description"]
+                )
+    return {"audit": dict(audit), "issues": issues, "pages": pages, "recommendations": recommendations, "failures": failures}
+
+
+@app.get("/audits/{audit_id}")
+async def get_audit(audit_id: uuid.UUID, user=Depends(current_user), pool=Depends(db)):
+    row = await pool.fetchrow(
+        """SELECT a.*,s.url AS site_url FROM audits a JOIN sites s ON s.id=a.site_id
+           WHERE a.id=$1 AND s.user_id=$2""", audit_id, uuid.UUID(user["id"])
+    )
+    if not row:
+        raise HTTPException(404, "Audit not found")
+    pages = await pool.fetch("SELECT * FROM audit_pages WHERE audit_id=$1 ORDER BY url", audit_id)
+    issues = await pool.fetch("SELECT * FROM audit_issues WHERE audit_id=$1 ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END", audit_id)
+    result = dict(row)
+    result["pages"] = [dict(page) for page in pages]
+    result["issues"] = [dict(issue) for issue in issues]
+    return result
+
+
+@app.post("/metadata/generate")
+async def metadata_generate(body: MetadataInput, user=Depends(current_user)):
+    if not OPENAI_API_KEY:
+        raise HTTPException(503, "AI generation is not configured.")
+    prompt = {"url": body.page_url, "current_title": body.title, "current_description": body.description, "keywords": body.keywords}
+    async with httpx.AsyncClient(timeout=25) as client:
+        response = await client.post("https://api.openai.com/v1/responses", headers={"Authorization": f"Bearer {OPENAI_API_KEY}"}, json={
+            "model": "gpt-4.1-mini",
+            "input": [{"role": "system", "content": "Generate accurate SEO metadata. Never invent facts about the business. Return JSON with title, description, rationale."}, {"role": "user", "content": json.dumps(prompt)}],
+            "text": {"format": {"type": "json_object"}}
+        })
+    if response.status_code >= 400:
+        raise HTTPException(502, "AI service is temporarily unavailable.")
+    data = response.json()
+    output = "".join(part.get("text", "") for item in data.get("output", []) for part in item.get("content", []) if part.get("type") == "output_text")
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError:
+        raise HTTPException(502, "AI returned an invalid response.")
+
+
+@app.not_found
+async def not_found(request, exc):
+    return {"detail": "Not found"}
