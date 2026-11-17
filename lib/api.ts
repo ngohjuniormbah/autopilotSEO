@@ -1,4 +1,6 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+// Canonical Render service URL for the current MVP deployment.
+// Pinning this prevents a stale or mistyped Vercel env var sending requests elsewhere.
+const API_URL = "https://autopilotseo.onrender.com";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "") || "";
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const SESSION_KEY = "autopilotseo.supabase.session";
@@ -23,4 +25,20 @@ export async function requestPasswordReset(email:string){const redirect=typeof w
 export async function verifyOtp(tokenHash:string,type:"signup"|"email"|"recovery"|"invite"="email") { return persist(await authFetch("verify",{method:"POST",body:JSON.stringify({token_hash:tokenHash,type})})); }
 export async function updatePassword(password:string){const session=getSession();if(!session?.access_token)throw new Error("Your reset link is invalid or expired. Request a new one.");await authFetch("user",{method:"PUT",headers:{Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({password})});}
 export async function signOut(){const session=getSession();if(session?.access_token)await authFetch("logout",{method:"POST",headers:{Authorization:`Bearer ${session.access_token}`}}).catch(()=>undefined);saveSession(null);}
-export async function apiRequest<T>(path:string,init:RequestInit={}):Promise<T>{const session=await validSession();if(!API_URL)throw new Error("NEXT_PUBLIC_API_URL is not configured.");const response=await fetch(`${API_URL}${path}`,{...init,headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`,...init.headers}});const data=await response.json().catch(()=>({})) as T&{detail?:string;message?:string};if(!response.ok)throw new Error(data.detail||data.message||"The request failed.");return data;}
+export async function apiRequest<T>(path:string,init:RequestInit={}):Promise<T>{
+  const session=await validSession();
+  let response:Response;
+  try {
+    response=await fetch(`${API_URL}${path}`,{
+      ...init,
+      cache:"no-store",
+      headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`,...init.headers}
+    });
+  } catch(error) {
+    const reason=error instanceof Error?error.message:"Network request failed";
+    throw new Error(`Cannot reach AutopilotSEO API at ${API_URL}. ${reason}. Verify that the Render service is Live and its /health endpoint is reachable.`);
+  }
+  const data=await response.json().catch(()=>({})) as T&{detail?:string;message?:string};
+  if(!response.ok)throw new Error(data.detail||data.message||`API request failed with HTTP ${response.status}.`);
+  return data;
+}
