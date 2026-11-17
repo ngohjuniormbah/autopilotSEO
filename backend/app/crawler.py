@@ -64,6 +64,7 @@ def inspect_page(facts: dict[str, Any]) -> list[dict[str, str]]:
 
 
 async def crawl_site(base_url: str, safe_get: SafeGet) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[str]]:
+    base_url = base_url.rstrip("/") + "/"
     host = urlparse(base_url).hostname
     queue = deque([base_url])
     visited: set[str] = set()
