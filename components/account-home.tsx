@@ -118,7 +118,7 @@ export default function AccountHome() {
     <button className="workspace-backdrop" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)}/>
     <aside className="workspace-sidebar" aria-label="Workspace navigation">
       <div className="workspace-sidebar-top"><Brand/><button className="workspace-close-menu" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)}>×</button></div>
-      <div className="workspace-site-switcher"><span className="workspace-site-icon"><Icon name="globe" size={17}/></span><span><small>WORKSPACE</small><strong>{demo ? "Northstar Studio" : sites[0]?.url?.replace(/^https?:\\/\\//, "") || "My workspace"}</strong></span><span className="workspace-switch-caret">⌄</span></div>
+      <div className="workspace-site-switcher"><span className="workspace-site-icon"><Icon name="globe" size={17}/></span><span><small>WORKSPACE</small><strong>{demo ? "Northstar Studio" : sites[0]?.url?.replace("https://", "").replace("http://", "") || "My workspace"}</strong></span><span className="workspace-switch-caret">⌄</span></div>
       <div className="workspace-nav-label">MENU</div>
       <nav className="workspace-nav">
         {navItems.map((item) => <button key={item.id} className={`workspace-nav-item ${active === item.id ? "active" : ""}`} onClick={() => scrollTo(item.id)}><Icon name={item.icon}/><span>{item.label}</span>{item.id === "audit" && <span className="workspace-nav-count">14</span>}</button>)}
