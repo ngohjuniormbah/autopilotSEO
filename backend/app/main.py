@@ -27,7 +27,14 @@ SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 DATABASE_URL = os.environ["DATABASE_URL"]
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000").strip().rstrip("/")
+# Allow the production Vercel project and its preview deployments. Keep the
+# configured production origin as an explicit allow-list entry as well.
+FRONTEND_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("FRONTEND_ORIGIN", "http://localhost:3000").split(",")
+    if origin.strip()
+]
 MAX_PAGES = 12
 MAX_HTML_BYTES = 1_000_000
 TIMEOUT = httpx.Timeout(8.0, connect=4.0)
@@ -44,10 +51,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AutopilotSEO API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_ORIGIN],
+    allow_origins=FRONTEND_ORIGINS,
+    # Vercel preview URLs change per deployment. Restrict the regex to this
+    # project slug rather than allowing every *.vercel.app origin.
+    allow_origin_regex=r"https://autopilot-seo(?:-[a-z0-9-]+)?\\.vercel\\.app",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
+    max_age=600,
 )
 
 
