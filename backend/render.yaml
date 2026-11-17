@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: autopilotseo-api
+    name: autopilotseo
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt
