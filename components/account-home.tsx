@@ -93,7 +93,7 @@ export default function AccountHome() {
     if (!parsed.hostname.includes(".")) { setWebsiteError("Enter a full domain, such as example.com."); return; }
     setWebsiteError(""); setSiteSaving(true);
     try {
-      const created = await apiRequest<{site: Site}>("/sites", { method: "POST", body: JSON.stringify({ url: parsed.toString() }) });
+      const created = await apiRequest<{site: Site}>("/sites", { method: "POST", body: JSON.stringify({ url: `https://${parsed.hostname}` }) });
       setWebsite(created.site.url); setSites((current) => [created.site, ...current.filter((site) => site.id !== created.site.id)]);
       setSiteDialogStep(2); setAuditResult(null);
       const result = await apiRequest<Audit>(`/sites/${created.site.id}/audits`, { method: "POST", body: JSON.stringify({}) });
