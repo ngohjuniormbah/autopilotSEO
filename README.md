@@ -49,7 +49,7 @@ Create a Render Web Service from this repository. Use the checked-in `backend/re
 - Runtime: Python
 - Build Command: `pip install -r requirements.txt`
 - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Health Check Path: `/health`
+- Health Check Path: `/ready` (checks the database connection)
 
 Set these environment variables in Render:
 
@@ -87,7 +87,8 @@ For local development, copy `.env.example` to `.env.local`, install dependencies
 
 ## API endpoints
 
-- `GET /health`
+- `GET /health` (process liveness)
+- `GET /ready` (database readiness)
 - `GET /sites`
 - `POST /sites`
 - `GET /sites/{site_id}/audits`
