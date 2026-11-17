@@ -51,16 +51,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AutopilotSEO API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=FRONTEND_ORIGINS,
-    # Vercel preview URLs change per deployment. Restrict the regex to this
-    # project slug rather than allowing every *.vercel.app origin.
-    allow_origin_regex=r"https://autopilot-seo(?:-[a-z0-9-]+)?\.vercel\.app",
+    # API access is protected by Supabase JWT validation in current_user().
+    # CORS is not authentication; allow browser clients from custom domains
+    # and Vercel deployments without fragile origin matching.
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
     max_age=600,
 )
-
 
 async def current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     if not authorization or not authorization.startswith("Bearer "):
