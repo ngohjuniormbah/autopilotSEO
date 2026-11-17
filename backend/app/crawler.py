@@ -102,7 +102,7 @@ async def crawl_site(base_url: str, safe_get: SafeGet) -> tuple[list[dict[str, A
                     target = urlparse(link)
                     if target.hostname == host and target.scheme == "https" and link not in visited and len(queue) < MAX_PAGES * 4:
                         queue.append(link)
-            except (httpx.HTTPError, UnicodeError, ValueError) as exc:
+            except Exception as exc:
                 failures.append(f"{url}: {type(exc).__name__}")
     async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=4.0), headers=headers) as client:
         for path, code, label in [("/robots.txt", "missing_robots", "robots.txt"), ("/sitemap.xml", "missing_sitemap", "XML sitemap")]:
@@ -131,12 +131,15 @@ async def generate_recommendations(issues: list[dict[str, str]], site_url: str, 
         "issues": issues[:40],
         "instruction": "Return a JSON object with a recommendations array of at most 5 prioritized recommendations. Each item must have title, priority (high|medium|low), reason, action. Only use supplied findings; do not claim rankings or traffic impact."
     }
-    async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post("https://api.openai.com/v1/responses", headers={"Authorization": f"Bearer {api_key}"}, json={
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post("https://api.openai.com/v1/responses", headers={"Authorization": f"Bearer {api_key}"}, json={
             "model": "gpt-4.1-mini",
             "input": [{"role": "system", "content": "You are a technical SEO analyst. Return only valid JSON, no markdown."}, {"role": "user", "content": json.dumps(prompt)}],
-            "text": {"format": {"type": "json_object"}}
-        })
+                "text": {"format": {"type": "json_object"}}
+            })
+    except httpx.HTTPError:
+        return []
     if response.status_code >= 400:
         return []
     data = response.json()
